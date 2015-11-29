@@ -13,6 +13,7 @@
 #include <QAction>
 #include <QFileDialog>
 #include <QMenu>
+#include <QtConcurrentRun>
 
 #include <qapplication.h>
 #include <qdesktopwidget.h>
@@ -491,6 +492,12 @@ void ConfigList::setValue(ConfigItem* item, tristate val)
 	}
 }
 
+int doConflictCheck(ConfigItem* item)
+{
+	qDebug() << "Do conflict check";
+	return qrand();
+}
+
 void ConfigList::changeValue(ConfigItem* item)
 {
 	struct symbol* sym;
@@ -507,6 +514,8 @@ void ConfigList::changeValue(ConfigItem* item)
 		return;
 	}
 	qDebug() << "Just changeValue";
+	QFuture<int> future = QtConcurrent::run(doConflictCheck, item);
+	emit foundConflict(future.result());
 
 
 	type = sym_get_type(sym);
@@ -1334,6 +1343,10 @@ void ConfigSearchWindow::search(void)
 	}
 }
 
+void ConfigMainWindow::addConflict(int something) {
+	conflictsList->addItem(QString("Conflict check did some job: %1").arg(something));
+}
+
 /*
  * Construct the complete config widget
  */
@@ -1367,16 +1380,18 @@ ConfigMainWindow::ConfigMainWindow(void)
 
 	menuView = new ConfigView(split1, "menu");
 	menuList = menuView->list;
+	connect(menuList, SIGNAL(foundConflict(int)), SLOT(addConflict(int)));
 
 	split2 = new QSplitter(split1);
 	split2->setOrientation(Qt::Vertical);
 
-	QListWidget *conflictsViewList = new QListWidget(split1);
-	conflictsViewList->addItem("ConflictsView");
+	conflictsList = new QListWidget(split1);
+	conflictsList->addItem("ConflictsView");
 
 	// create config tree
 	configView = new ConfigView(split2, "config");
 	configList = configView->list;
+	connect(configList, SIGNAL(foundConflict(int)), SLOT(addConflict(int)));
 
 	helpText = new ConfigInfoView(split2, "help");
 
@@ -1416,6 +1431,9 @@ ConfigMainWindow::ConfigMainWindow(void)
 	fullViewAction = new QAction(QPixmap(xpm_tree_view), _("Full View"), this);
 	fullViewAction->setCheckable(true);
 	  connect(fullViewAction, SIGNAL(triggered(bool)), SLOT(showFullView()));
+	conflictsAction = new QAction(QPixmap(xpm_conflicts), _("Conflicts View"), this);
+	conflictsAction->setCheckable(true);
+	  connect(conflictsAction, SIGNAL(triggered(bool)), SLOT(showConflicts()));
 
 	QAction *showNameAction = new QAction(_("Show Name"), this);
 	  showNameAction->setCheckable(true);
@@ -1461,6 +1479,8 @@ ConfigMainWindow::ConfigMainWindow(void)
 	toolBar->addAction(singleViewAction);
 	toolBar->addAction(splitViewAction);
 	toolBar->addAction(fullViewAction);
+	toolBar->addSeparator();
+	toolBar->addAction(conflictsAction);
 
 	// create config menu
 	QMenu* config = menu->addMenu(_("&File"));
@@ -1525,6 +1545,12 @@ ConfigMainWindow::ConfigMainWindow(void)
 	sizes = configSettings->readSizes("/split2", &ok);
 	if (ok)
 		split2->setSizes(sizes);
+
+	QVariant showConflicts = configSettings->value("/showConflicts", true);
+	if (showConflicts.toBool())
+		conflictsAction->setChecked(true);
+	else
+		conflictsList->hide();
 }
 
 void ConfigMainWindow::loadConfig(void)
@@ -1758,6 +1784,15 @@ void ConfigMainWindow::showIntro(void)
 		"which you can then match by examining other options.\n\n");
 
 	QMessageBox::information(this, "qconf", str);
+}
+
+void ConfigMainWindow::showConflicts(void)
+{
+	if (conflictsList->isVisible())
+		conflictsList->hide();
+	else
+		conflictsList->show();
+	configSettings->setValue("/showConflicts", conflictsList->isVisible());
 }
 
 void ConfigMainWindow::showAbout(void)
